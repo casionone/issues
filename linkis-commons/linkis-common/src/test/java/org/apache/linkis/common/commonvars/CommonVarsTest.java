@@ -90,4 +90,10 @@ public class CommonVarsTest {
       //      assertEquals(valueNotHotloadSet2, strVar2.getValue());
     }
   }
+
+  @Test
+  public void testIsAdmin() {
+    CommonVars<String> admin = CommonVars.apply("linkis.governance.station.admin", "hadoop");
+    assertEquals("wds.linkis.governance.station.admin", admin.key());
+  }
 }

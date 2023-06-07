@@ -54,8 +54,18 @@ object CommonVars {
   def apply[T](key: String, defaultValue: T, description: String): CommonVars[T] =
     CommonVars(key, defaultValue, null.asInstanceOf[T], description)
 
-  implicit def apply[T](key: String, defaultValue: T): CommonVars[T] =
-    new CommonVars(key, defaultValue, null.asInstanceOf[T], null)
+  implicit def apply[T](key: String, defaultValue: T): CommonVars[T] = {
+    var commonVars = new CommonVars(key, defaultValue, null.asInstanceOf[T], null)
+    if (defaultValue == commonVars.getValue && !key.contains("wds")) {
+      commonVars = new CommonVars(
+        key.replace("linkis.", "wds.linkis."),
+        defaultValue,
+        null.asInstanceOf[T],
+        null
+      )
+    }
+    commonVars
+  }
 
   implicit def apply[T](key: String): CommonVars[T] =
     apply(key, null.asInstanceOf[T], null.asInstanceOf[T], null)

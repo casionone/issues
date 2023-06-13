@@ -94,6 +94,8 @@ public class CommonVarsTest {
   @Test
   public void testIsAdmin() {
     CommonVars<String> admin = CommonVars.apply("linkis.governance.station.admin", "hadoop");
-    assertEquals("wds.linkis.governance.station.admin", admin.key());
+    CommonVars<String> adminwds = CommonVars.apply("wds.linkis.governance.station.admin", "hadoop");
+    assertEquals("hduser05", admin.getValue());
+    assertEquals("hduser05", adminwds.getValue());
   }
 }

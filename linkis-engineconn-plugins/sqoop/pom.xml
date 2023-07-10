@@ -25,8 +25,30 @@
   </parent>
 
   <artifactId>linkis-engineplugin-sqoop</artifactId>
+  <properties>
+    <sqoop.version>1.4.6</sqoop.version>
+    <hive.version>3.1.2</hive.version>
+  </properties>
 
   <dependencies>
+    <!-- disruptor for Log4j2 AsyncLogger-->
+    <dependency>
+      <groupId>com.lmax</groupId>
+      <artifactId>disruptor</artifactId>
+      <version>3.4.0</version>
+    </dependency>
+    <!--linkis datasource client-->
+    <dependency>
+      <groupId>org.apache.linkis</groupId>
+      <artifactId>linkis-datasource-client</artifactId>
+      <version>${project.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.linkis</groupId>
+          <artifactId>linkis-common</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>
       <artifactId>commons-exec</artifactId>
@@ -42,12 +64,6 @@
       <groupId>org.apache.avro</groupId>
       <artifactId>avro</artifactId>
       <version>1.11.0</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>com.lmax</groupId>
-      <artifactId>disruptor</artifactId>
-      <version>3.4.3</version>
       <scope>provided</scope>
     </dependency>
     <dependency>

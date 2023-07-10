@@ -6,7 +6,7 @@
  * (the "License"); you may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
  *
- *    http://www.apache.org/licenses/LICENSE-2.0
+ *   http://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -15,22 +15,8 @@
  * limitations under the License.
  */
 
-package org.apache.linkis.engineplugin.spark.datacalc.service.strategy;
 
-public class DmStrategy extends NormalStrategy {
 
-  @Override
-  public String defaultDriver() {
-    return "dm.jdbc.driver.DmDriver";
-  }
+ALTER TABLE `linkis_ps_udf_user_load` ADD CONSTRAINT  `uniq_uid_uname` UNIQUE (`udf_id`, `user_name`);
+ALTER TABLE `linkis_ps_bml_resources_version` ADD CONSTRAINT  `uniq_rid_eflag` UNIQUE (`resource_id`, `enable_flag`);
 
-  @Override
-  public String defaultPort() {
-    return "5236";
-  }
-
-  @Override
-  public String getDatabaseType() {
-    return "dm";
-  }
-}

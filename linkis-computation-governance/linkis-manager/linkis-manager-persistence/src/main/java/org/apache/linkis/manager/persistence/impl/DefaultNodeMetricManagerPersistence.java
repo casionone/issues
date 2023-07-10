@@ -62,8 +62,7 @@ public class DefaultNodeMetricManagerPersistence implements NodeMetricManagerPer
   }
 
   @Override
-  public void addNodeMetrics(NodeMetrics nodeMetrics) {
-    // 直接插入 NodeMetric即可
+  public void addNodeMetrics(NodeMetrics nodeMetrics) throws PersistenceErrorException {
     PersistenceNodeMetrics persistenceNodeMetrics = new PersistenceNodeMetrics();
     persistenceNodeMetrics.setInstance(nodeMetrics.getServiceInstance().getInstance());
     persistenceNodeMetrics.setHealthy(nodeMetrics.getHealthy());
@@ -72,7 +71,6 @@ public class DefaultNodeMetricManagerPersistence implements NodeMetricManagerPer
     persistenceNodeMetrics.setStatus(nodeMetrics.getStatus());
     persistenceNodeMetrics.setCreateTime(new Date());
     persistenceNodeMetrics.setUpdateTime(new Date());
-    // todo 异常信息后面统一处理
     nodeMetricManagerMapper.addNodeMetrics(persistenceNodeMetrics);
   }
 
@@ -107,6 +105,7 @@ public class DefaultNodeMetricManagerPersistence implements NodeMetricManagerPer
       // ec node metircs report ignore update Shutingdown node (for case: asyn stop engine)
       PersistenceNodeMetrics oldMetrics =
           nodeMetricManagerMapper.getNodeMetricsByInstance(instance);
+
       boolean isECM =
           nodeMetrics
               .getServiceInstance()
@@ -116,10 +115,11 @@ public class DefaultNodeMetricManagerPersistence implements NodeMetricManagerPer
           && oldMetrics != null
           && NodeStatus.ShuttingDown.ordinal() <= oldMetrics.getStatus()) {
         logger.info(
-            "ignore update ShuttingDown status node:{} to status:{}",
+            "ignore update status node:{} from:{} to status:{}",
             instance,
+            NodeStatus.values()[oldMetrics.getStatus()].name(),
             NodeStatus.values()[nodeMetrics.getStatus()].name());
-        persistenceNodeMetrics.setStatus(null);
+        persistenceNodeMetrics.setStatus(oldMetrics.getStatus());
       } else {
         persistenceNodeMetrics.setStatus(nodeMetrics.getStatus());
       }
@@ -131,7 +131,6 @@ public class DefaultNodeMetricManagerPersistence implements NodeMetricManagerPer
       persistenceNodeMetrics.setUpdateTime(new Date());
       nodeMetricManagerMapper.updateNodeMetrics(persistenceNodeMetrics, instance);
     } else {
-      // 其他情况都不处理，打印个告警日志
     }
   }
 
@@ -145,7 +144,6 @@ public class DefaultNodeMetricManagerPersistence implements NodeMetricManagerPer
       instances.add(instance);
     }
 
-    // 根据  id 查 metric 信息
     List<PersistenceNodeMetrics> persistenceNodeMetricsList =
         nodeMetricManagerMapper.getNodeMetricsByInstances(instances);
 

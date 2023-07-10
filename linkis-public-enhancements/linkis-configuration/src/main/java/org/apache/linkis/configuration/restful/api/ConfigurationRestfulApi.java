@@ -43,6 +43,7 @@ import javax.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -144,6 +145,7 @@ public class ConfigurationRestfulApi {
     ArrayList<ConfigTree> configTrees =
         configurationService.getFullTreeByLabelList(
             labelList, true, req.getHeader("Content-Language"));
+
     return Message.ok().data("fullTree", configTrees);
   }
 
@@ -152,7 +154,44 @@ public class ConfigurationRestfulApi {
   public Message getCategory(HttpServletRequest req) {
     List<CategoryLabelVo> categoryLabelList =
         categoryService.getAllCategory(req.getHeader("Content-Language"));
+
     return Message.ok().data("Category", categoryLabelList);
+  }
+
+  @ApiOperation(
+      value = "getItemList",
+      notes = "get configuration list by engineType",
+      response = Message.class)
+  @RequestMapping(path = "/getItemList", method = RequestMethod.GET)
+  public Message getItemList(
+      HttpServletRequest req, @RequestParam(value = "engineType") String engineType)
+      throws ConfigurationException {
+    String userName =
+        ModuleUserUtils.getOperationUser(req, "getItemList with engineType:" + engineType);
+    List<ConfigKey> result = configKeyService.getConfigKeyList(engineType);
+    List<Map> filterResult = new ArrayList<>();
+    for (ConfigKey configKey : result) {
+      Map temp = new HashMap();
+      temp.put("key", configKey.getKey());
+      temp.put("name", configKey.getName());
+      temp.put("description", configKey.getDescription());
+      temp.put("engineType", configKey.getEngineType());
+      temp.put("validateType", configKey.getValidateType());
+      temp.put("validateRange", configKey.getValidateRange());
+      temp.put("boundaryType", configKey.getBoundaryType());
+      temp.put("defaultValue", configKey.getDefaultValue());
+      temp.put("description", configKey.getDescription());
+      // for front-end to judge whether input is required
+      if (StringUtils.isNotEmpty(configKey.getDefaultValue())) {
+        temp.put("require", "true");
+      } else {
+        temp.put("require", "false");
+      }
+
+      filterResult.add(temp);
+    }
+
+    return Message.ok().data("itemList", filterResult);
   }
 
   @ApiOperation(
@@ -424,12 +463,14 @@ public class ConfigurationRestfulApi {
   @RequestMapping(path = "/keyvalue", method = RequestMethod.POST)
   public Message saveKeyValue(HttpServletRequest req, @RequestBody Map<String, Object> json)
       throws ConfigurationException {
+    Message message = Message.ok();
     String username = ModuleUserUtils.getOperationUser(req, "saveKey");
     String engineType = (String) json.getOrDefault("engineType", "*");
     String version = (String) json.getOrDefault("version", "*");
     String creator = (String) json.getOrDefault("creator", "*");
     String configKey = (String) json.get("configKey");
     String value = (String) json.get("configValue");
+    boolean force = Boolean.parseBoolean(json.getOrDefault("force", "false").toString());
     if (engineType.equals("*") && !version.equals("*")) {
       return Message.error("When engineType is any engine, the version must also be any version");
     }
@@ -444,9 +485,18 @@ public class ConfigurationRestfulApi {
     configKeyValue.setKey(configKey);
     configKeyValue.setConfigValue(value);
 
+    try {
+      configurationService.paramCheck(configKeyValue);
+    } catch (Exception e) {
+      if (force) {
+        message.data("msg", e.getMessage());
+      } else {
+        return Message.error(e.getMessage());
+      }
+    }
     ConfigValue configValue = configKeyService.saveConfigValue(configKeyValue, labelList);
     configurationService.clearAMCacheConf(username, creator, engineType, version);
-    return Message.ok().data("configValue", configValue);
+    return message.data("configValue", configValue);
   }
 
   @ApiOperation(value = "deleteKeyValue", notes = "delete key value", response = Message.class)

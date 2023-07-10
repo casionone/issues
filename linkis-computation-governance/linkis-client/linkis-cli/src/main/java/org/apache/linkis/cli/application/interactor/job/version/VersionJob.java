@@ -15,16 +15,34 @@
  * limitations under the License.
  */
 
-package org.apache.linkis.cli.application.present;
+package org.apache.linkis.cli.application.interactor.job.version;
 
-import org.apache.linkis.cli.application.entity.present.Model;
-import org.apache.linkis.cli.application.entity.present.Presenter;
-import org.apache.linkis.cli.application.utils.CliUtils;
+import org.apache.linkis.cli.application.constants.CliKeys;
+import org.apache.linkis.cli.application.entity.context.CliCtx;
+import org.apache.linkis.cli.application.entity.job.Job;
+import org.apache.linkis.cli.application.entity.job.JobResult;
 import org.apache.linkis.cli.application.utils.LoggerManager;
 
-public class JobInfoPresenter implements Presenter {
+import java.util.HashMap;
+import java.util.Map;
+
+public class VersionJob implements Job {
+  private CliCtx ctx;
+
   @Override
-  public void present(Model model) {
-    LoggerManager.getPlaintTextLogger().info(CliUtils.GSON.toJson(model));
+  public void build(CliCtx cliCtx) {
+    this.ctx = cliCtx;
   }
+
+  @Override
+  public JobResult run() {
+    String version = (String) ctx.getExtraMap().get(CliKeys.VERSION);
+    Map<String, String> extraMap = new HashMap<>();
+    extraMap.put(CliKeys.VERSION, version);
+    LoggerManager.getPlaintTextLogger().info("Version=" + version);
+    return new VersionJobResult(true, "ok", extraMap);
+  }
+
+  @Override
+  public void onDestroy() {}
 }

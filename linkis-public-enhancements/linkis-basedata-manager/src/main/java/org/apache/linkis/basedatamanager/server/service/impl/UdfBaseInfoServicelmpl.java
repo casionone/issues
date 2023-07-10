@@ -15,27 +15,16 @@
  * limitations under the License.
  */
 
-package org.apache.linkis.manager.common.entity.recycle;
+package org.apache.linkis.basedatamanager.server.service.impl;
 
-import org.apache.linkis.common.ServiceInstance;
+import org.apache.linkis.basedatamanager.server.dao.UdfBaseInfoMapper;
+import org.apache.linkis.basedatamanager.server.domain.UdfBaseInfoEntity;
+import org.apache.linkis.basedatamanager.server.service.UdfBaseInfoService;
 
-public class AssignNodeRule implements RecyclingRule {
+import org.springframework.stereotype.Service;
 
-  private final ServiceInstance serviceInstance;
+import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 
-  private final String user;
-
-  public AssignNodeRule(ServiceInstance serviceInstance, String user) {
-    this.serviceInstance = serviceInstance;
-    this.user = user;
-  }
-
-  @Override
-  public String getUser() {
-    return user;
-  }
-
-  public ServiceInstance serviceInstance() {
-    return serviceInstance;
-  }
-}
+@Service
+public class UdfBaseInfoServicelmpl extends ServiceImpl<UdfBaseInfoMapper, UdfBaseInfoEntity>
+    implements UdfBaseInfoService {}

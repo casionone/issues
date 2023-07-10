@@ -31,7 +31,7 @@ import org.apache.linkis.engineplugin.spark.exception.{
   SparkSessionNullException
 }
 import org.apache.linkis.engineplugin.spark.utils.EngineUtils
-import org.apache.linkis.governance.common.paser.ScalaCodeParser
+import org.apache.linkis.governance.common.paser.{EmptyCodeParser, ScalaCodeParser}
 import org.apache.linkis.scheduler.executer.{
   ErrorExecuteResponse,
   ExecuteResponse,

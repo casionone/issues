@@ -17,9 +17,14 @@
 
 package org.apache.linkis.configuration.service
 
-import org.apache.linkis.common.utils.Logging
+import org.apache.linkis.common.utils.{Logging, Utils}
 import org.apache.linkis.configuration.conf.Configuration
-import org.apache.linkis.configuration.dao.{ConfigMapper, LabelMapper}
+import org.apache.linkis.configuration.dao.{
+  ConfigKeyLimitForUserMapper,
+  ConfigMapper,
+  LabelMapper,
+  TemplateConfigKeyMapper
+}
 import org.apache.linkis.configuration.entity._
 import org.apache.linkis.configuration.exception.ConfigurationException
 import org.apache.linkis.configuration.util.{LabelEntityParser, LabelParameterParser}
@@ -42,6 +47,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.util.CollectionUtils
 
+import java.text.MessageFormat
 import java.util
 
 import scala.collection.JavaConverters._
@@ -56,6 +62,8 @@ class ConfigurationService extends Logging {
   @Autowired private var labelMapper: LabelMapper = _
 
   @Autowired private var validatorManager: ValidatorManager = _
+
+  @Autowired private var templateConfigKeyMapper: TemplateConfigKeyMapper = _
 
   private val combinedLabelBuilder: CombinedLabelBuilder = new CombinedLabelBuilder
 
@@ -91,12 +99,6 @@ class ConfigurationService extends Logging {
       configMapper.insertValue(configValue)
       logger.info(s"Succeed to  create relation: key:${key.getKey},label:${label.getStringValue}")
     }
-  }
-
-  def insertCreator(creator: String): Unit = {
-    val creatorID: Long = configMapper.selectAppIDByAppName(creator)
-    if (creatorID > 0) configMapper.insertCreator(creator)
-    else logger.warn(s"creator${creator} exists")
   }
 
   def checkAndCreateUserLabel(
@@ -178,6 +180,33 @@ class ConfigurationService extends Logging {
       createList: util.List[ConfigValue],
       updateList: util.List[ConfigValue]
   ): Any = {
+
+    val configLabel = labelMapper.getLabelById(setting.getConfigLabelId)
+    val combinedLabel = combinedLabelBuilder
+      .buildFromStringValue(configLabel.getLabelKey, configLabel.getStringValue)
+      .asInstanceOf[CombinedLabel]
+    val templateConfigKeyVo =
+      templateConfigKeyMapper.selectByLabelAndKeyId(combinedLabel.getStringValue, setting.getId)
+    if (templateConfigKeyVo != null && StringUtils.isNotBlank(templateConfigKeyVo.getMaxValue)) {
+      Utils.tryCatch {
+        val maxValue = Integer.valueOf(templateConfigKeyVo.getMaxValue.replaceAll("[^0-9]", ""))
+        val configValue = Integer.valueOf(setting.getConfigValue.replaceAll("[^0-9]", ""))
+        if (configValue > maxValue) {
+          throw new ConfigurationException(
+            s"Parameter key:${setting.getKey},config value:${setting.getConfigValue} verification failed，exceeds the specified max value:${templateConfigKeyVo.getMaxValue}:(参数校验失败，超过指定的最大值):" +
+              s"${setting.getValidateType}--${setting.getValidateRange}"
+          )
+        }
+      } { case exception: Exception =>
+        if (exception.isInstanceOf[ConfigurationException]) {
+          throw exception
+        } else {
+          logger.warn(
+            s"Failed to check special limit setting for key:${setting.getKey},config value:${setting.getConfigValue}"
+          )
+        }
+      }
+    }
     paramCheck(setting)
     if (setting.getIsUserDefined) {
       val configValue = new ConfigValue
@@ -259,6 +288,12 @@ class ConfigurationService extends Logging {
     combinedLabel.asInstanceOf[CombinedLabelImpl]
   }
 
+  /**
+   * Priority: configs > defaultConfigs
+   * @param configs
+   * @param defaultConfigs
+   * @return
+   */
   def buildTreeResult(
       configs: util.List[ConfigKeyValue],
       defaultConfigs: util.List[ConfigKeyValue] = new util.ArrayList[ConfigKeyValue]()
@@ -269,9 +304,8 @@ class ConfigurationService extends Logging {
         defaultConfig.setIsUserDefined(false)
         configs.asScala.foreach(config => {
           if (config.getKey != null && config.getKey.equals(defaultConfig.getKey)) {
-            if (StringUtils.isNotBlank(config.getConfigValue)) {
-              defaultConfig.setConfigValue(config.getConfigValue)
-            }
+            // configValue also needs to be replaced when the value is empty
+            defaultConfig.setConfigValue(config.getConfigValue)
             defaultConfig.setConfigLabelId(config.getConfigLabelId)
             defaultConfig.setValueId(config.getValueId)
             defaultConfig.setIsUserDefined(true)
@@ -380,6 +414,32 @@ class ConfigurationService extends Logging {
         replaceCreatorToEngine(defaultCreatorConfigs, defaultEngineConfigs)
       }
     }
+
+    // add special config limit info
+    if (defaultEngineConfigs.size() > 0) {
+      val keyIdList = defaultEngineConfigs.asScala.toStream
+        .map(e => {
+          e.getId
+        })
+        .toList
+        .asJava
+      val limitList =
+        templateConfigKeyMapper.selectByLabelAndKeyIds(combinedLabel.getStringValue, keyIdList)
+      defaultEngineConfigs.asScala.foreach(entity => {
+        val keyId = entity.getId
+        val res = limitList.asScala.filter(v => v.getKeyId == keyId).toList.asJava
+        if (res.size() > 0) {
+          val specialMap = new util.HashMap[String, String]()
+          specialMap.put("maxValue", res.get(0).getMaxValue)
+          entity.setSpecialLimit(specialMap)
+        }
+      })
+    } else {
+      logger.warn(
+        s"The configuration is empty. Please check the configuration information in the database table(配置为空,请检查数据库表中关于标签${combinedLabel.getStringValue}的配置信息是否完整)"
+      )
+    }
+
     (configs, defaultEngineConfigs)
   }
 

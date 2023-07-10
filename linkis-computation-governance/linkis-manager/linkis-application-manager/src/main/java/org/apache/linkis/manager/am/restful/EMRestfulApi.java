@@ -35,7 +35,7 @@ import org.apache.linkis.manager.common.entity.metrics.NodeHealthyInfo;
 import org.apache.linkis.manager.common.entity.node.EMNode;
 import org.apache.linkis.manager.common.entity.node.EngineNode;
 import org.apache.linkis.manager.common.entity.persistence.ECResourceInfoRecord;
-import org.apache.linkis.manager.common.protocol.OperateRequest;
+import org.apache.linkis.manager.common.protocol.OperateRequest$;
 import org.apache.linkis.manager.common.protocol.em.ECMOperateRequest;
 import org.apache.linkis.manager.common.protocol.em.ECMOperateResponse;
 import org.apache.linkis.manager.label.builder.factory.LabelBuilderFactory;
@@ -430,12 +430,12 @@ public class EMRestfulApi {
 
   private Message executeECMOperation(
       EMNode ecmNode, String engineInstance, ECMOperateRequest ecmOperateRequest) {
-    String operationName = OperateRequest.getOperationName(ecmOperateRequest.getParameters());
-    if (ArrayUtils.contains(adminOperations, operationName)
-        && Configuration.isNotAdmin(ecmOperateRequest.getUser())) {
+    String operationName = OperateRequest$.MODULE$.getOperationName(ecmOperateRequest.parameters());
+    String userName = ecmOperateRequest.user();
+    if (ArrayUtils.contains(adminOperations, operationName) && Configuration.isNotAdmin(userName)) {
       logger.warn(
           "User {} has no permission to execute {} admin Operation in ECM {}.",
-          ecmOperateRequest.getUser(),
+          userName,
           operationName,
           ecmNode.getServiceInstance());
       return Message.error(
@@ -447,15 +447,30 @@ public class EMRestfulApi {
 
     // fill in logDirSuffix
     if (StringUtils.isNotBlank(engineInstance)
-        && Objects.isNull(ecmOperateRequest.getParameters().get("logDirSuffix"))) {
+        && Objects.isNull(ecmOperateRequest.parameters().get("logDirSuffix"))) {
       ECResourceInfoRecord ecResourceInfoRecord =
           ecResourceInfoService.getECResourceInfoRecordByInstance(engineInstance);
       if (Objects.isNull(ecResourceInfoRecord)) {
         return Message.error("ECM instance: " + ecmNode.getServiceInstance() + " not exist ");
       }
-      ecmOperateRequest.getParameters().put("logDirSuffix", ecResourceInfoRecord.getLogDirSuffix());
+      ecmOperateRequest.parameters().put("logDirSuffix", ecResourceInfoRecord.getLogDirSuffix());
     }
 
+    // eg logDirSuffix -> root/20230705/io_file/6d48068a-0e1e-44b5-8eb2-835034db5b30/logs
+    String logDirSuffix = ecmOperateRequest.parameters().get("logDirSuffix").toString();
+    String dirsuffix = logDirSuffix.split("/")[0];
+    if (!dirsuffix.equals(userName) && Configuration.isNotJobHistoryAdmin(userName)) {
+      logger.warn(
+          "User {} has no permission to get log with path: {} in ECM:{}.",
+          userName,
+          logDirSuffix,
+          ecmNode.getServiceInstance());
+      return Message.error(
+          "You have no permission to get log with path:"
+              + logDirSuffix
+              + " in ECM:"
+              + ecmNode.getServiceInstance());
+    }
     ECMOperateResponse engineOperateResponse =
         ecmOperateService.executeOperation(ecmNode, ecmOperateRequest);
 

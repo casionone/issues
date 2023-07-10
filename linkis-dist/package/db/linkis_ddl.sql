@@ -153,6 +153,8 @@ DROP TABLE IF EXISTS `linkis_ps_udf_manager`;
 CREATE TABLE `linkis_ps_udf_manager` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `user_name` varchar(20) DEFAULT NULL,
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB  DEFAULT CHARSET=utf8;
 
@@ -166,6 +168,8 @@ CREATE TABLE `linkis_ps_udf_shared_group` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `udf_id` bigint(20) NOT NULL,
   `shared_group` varchar(50) NOT NULL,
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
@@ -174,7 +178,9 @@ CREATE TABLE `linkis_ps_udf_shared_info`
 (
    `id` bigint(20) PRIMARY KEY NOT NULL AUTO_INCREMENT,
    `udf_id` bigint(20) NOT NULL,
-   `user_name` varchar(50) NOT NULL
+   `user_name` varchar(50) NOT NULL,
+   `update_time` datetime DEFAULT CURRENT_TIMESTAMP,
+   `create_time` datetime DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 -- ----------------------------
@@ -190,7 +196,8 @@ CREATE TABLE `linkis_ps_udf_tree` (
   `create_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `category` varchar(50) DEFAULT NULL COMMENT 'Used to distinguish between udf and function',
-  PRIMARY KEY (`id`)
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_parent_name_uname_category` (`parent`,`name`,`user_name`,`category`)
 ) ENGINE=InnoDB  DEFAULT CHARSET=utf8;
 
 
@@ -203,7 +210,10 @@ CREATE TABLE `linkis_ps_udf_user_load` (
   `id` bigint(20) NOT NULL AUTO_INCREMENT,
   `udf_id` bigint(20) NOT NULL,
   `user_name` varchar(50) NOT NULL,
-  PRIMARY KEY (`id`)
+  `update_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  `create_time` datetime DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_uid_uname` (`udf_id`, `user_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
 
 DROP TABLE IF EXISTS `linkis_ps_udf_baseinfo`;
@@ -235,6 +245,7 @@ CREATE TABLE `linkis_ps_udf_version` (
   `use_format` varchar(255) DEFAULT NULL,
   `description` varchar(255) NOT NULL COMMENT 'version desc',
   `create_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `update_time` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   `md5` varchar(100) DEFAULT NULL,
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8;
@@ -507,6 +518,7 @@ CREATE TABLE if not exists `linkis_ps_bml_resources_version` (
 	`updator` varchar(50) DEFAULT NULL COMMENT 'updator',
 	`enable_flag` tinyint(1) NOT NULL DEFAULT '1' COMMENT 'Status, 1: normal, 0: frozen',
 	unique key `uniq_rid_version`(`resource_id`, `version`),
+	unique key `uniq_rid_eflag`(`resource_id`, `enable_flag`),
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

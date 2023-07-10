@@ -23,19 +23,21 @@ import org.apache.linkis.gateway.authentication.bo.impl.TokenImpl
 import org.apache.linkis.gateway.authentication.conf.TokenConfiguration
 import org.apache.linkis.gateway.authentication.dao.TokenDao
 import org.apache.linkis.gateway.authentication.entity.TokenEntity
+import org.apache.linkis.gateway.authentication.errorcode.LinkisGwAuthenticationErrorCodeSummary
 import org.apache.linkis.gateway.authentication.errorcode.LinkisGwAuthenticationErrorCodeSummary._
 import org.apache.linkis.gateway.authentication.exception.{
   TokenAuthException,
   TokenNotExistException
 }
-import org.apache.linkis.gateway.authentication.exception.TokenNotExistException
 
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
 
+import java.text.MessageFormat
 import java.util.concurrent.{ExecutionException, TimeUnit}
 
 import com.google.common.cache.{CacheBuilder, CacheLoader, LoadingCache}
+import com.google.common.util.concurrent.UncheckedExecutionException
 
 @Service
 class CachedTokenService extends TokenService {
@@ -59,9 +61,9 @@ class CachedTokenService extends TokenService {
 
     });
 
-//  def setTokenDao(tokenDao: TokenDao): Unit = {
-//    this.tokenDao = tokenDao
-//  }
+  //  def setTokenDao(tokenDao: TokenDao): Unit = {
+  //    this.tokenDao = tokenDao
+  //  }
 
   /*
     TODO begin
@@ -110,20 +112,30 @@ class CachedTokenService extends TokenService {
       t match {
         case x: ExecutionException =>
           x.getCause match {
-            case _: TokenNotExistException => null
-            case _ =>
-              throw new TokenAuthException(
-                FAILED_TO_LOAD_TOKEN.getErrorCode,
-                FAILED_TO_LOAD_TOKEN.getErrorDesc
-              )
+            case e: TokenNotExistException =>
+              throwTokenAuthException(NOT_EXIST_DB, tokenName, e)
+            case e =>
+              throwTokenAuthException(FAILED_TO_LOAD_TOKEN, tokenName, e)
           }
-        case _ =>
-          throw new TokenAuthException(
-            FAILED_TO_LOAD_TOKEN.getErrorCode,
-            FAILED_TO_LOAD_TOKEN.getErrorDesc
-          )
+        case e: UncheckedExecutionException =>
+          throwTokenAuthException(FAILED_TO_BAD_SQLGRAMMAR, tokenName, e)
+        case e =>
+          throwTokenAuthException(FAILED_TO_LOAD_TOKEN, tokenName, e)
       }
     )
+  }
+
+  private def throwTokenAuthException(
+      gwAuthenticationErrorCodeSummary: LinkisGwAuthenticationErrorCodeSummary,
+      tokenName: String,
+      e: Throwable
+  ) = {
+    val exception = new TokenAuthException(
+      gwAuthenticationErrorCodeSummary.getErrorCode,
+      MessageFormat.format(gwAuthenticationErrorCodeSummary.getErrorDesc, tokenName, e.getMessage)
+    )
+    exception.initCause(e)
+    throw exception
   }
 
   private def isTokenAcceptableWithUser(token: Token, userName: String): Boolean = {

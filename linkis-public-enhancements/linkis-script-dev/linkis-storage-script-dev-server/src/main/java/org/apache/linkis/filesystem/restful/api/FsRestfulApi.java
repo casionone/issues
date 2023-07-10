@@ -20,6 +20,7 @@ package org.apache.linkis.filesystem.restful.api;
 import org.apache.linkis.common.conf.Configuration;
 import org.apache.linkis.common.io.FsPath;
 import org.apache.linkis.common.io.FsWriter;
+import org.apache.linkis.common.utils.ResultSetUtils;
 import org.apache.linkis.filesystem.conf.WorkSpaceConfiguration;
 import org.apache.linkis.filesystem.entity.DirFileTree;
 import org.apache.linkis.filesystem.entity.LogLevel;
@@ -39,6 +40,8 @@ import org.apache.linkis.storage.excel.StorageMultiExcelWriter;
 import org.apache.linkis.storage.fs.FileSystem;
 import org.apache.linkis.storage.script.*;
 import org.apache.linkis.storage.source.FileSource;
+import org.apache.linkis.storage.source.FileSource$;
+import org.apache.linkis.storage.utils.FileSystemUtils;
 import org.apache.linkis.storage.utils.StorageUtils;
 
 import org.apache.commons.io.IOUtils;
@@ -525,13 +528,20 @@ public class FsRestfulApi {
       Pair<Integer, Integer>[] fileInfo = fileSource.getFileInfo(pageSize);
       IOUtils.closeQuietly(fileSource);
       if (null != fileInfo && fileInfo.length > 0) {
+        int rowNumber = (int) fileInfo[0].getSecond();
         message.data("path", path);
         message.data("colNumber", fileInfo[0].getFirst());
         message.data("rowNumber", fileInfo[0].getSecond());
+        if (rowNumber >= pageSize) {
+          message.data("totalLine", FileSystemUtils.getTotalLine(fsPath, fileSystem));
+        } else {
+          message.data("totalLine", rowNumber);
+        }
       } else {
         message.data("path", path);
         message.data("colNumber", 0);
         message.data("rowNumber", 0);
+        message.data("totalLine", 0);
       }
       return message;
     } finally {
@@ -843,7 +853,12 @@ public class FsRestfulApi {
       if (fsPathListWithError == null) {
         throw WorkspaceExceptionManager.createException(80029);
       }
-      FsPath[] fsPaths = fsPathListWithError.getFsPaths().toArray(new FsPath[] {});
+
+      List<FsPath> fsPathList = fsPathListWithError.getFsPaths();
+      // sort asc by _num.dolphin of num
+      ResultSetUtils.sortByNameNum(fsPathList);
+      FsPath[] fsPaths = fsPathList.toArray(new FsPath[] {});
+
       boolean isLimitDownloadSize = RESULT_SET_DOWNLOAD_IS_LIMIT.getValue();
       Integer excelDownloadSize = RESULT_SET_DOWNLOAD_MAX_SIZE_EXCEL.getValue();
       if (limit > 0) {
@@ -857,9 +872,12 @@ public class FsRestfulApi {
       response.setCharacterEncoding(StandardCharsets.UTF_8.name());
       outputStream = response.getOutputStream();
       // 前台传""会自动转为null
-      if (nullValue != null && BLANK.equalsIgnoreCase(nullValue)) nullValue = "";
-      fileSource = FileSource.create(fsPaths, fileSystem).addParams("nullValue", nullValue);
-      if (!FileSource.isTableResultSet(fileSource)) {
+      if (nullValue != null && BLANK.equalsIgnoreCase(nullValue)) {
+        nullValue = "";
+      }
+      fileSource =
+          FileSource$.MODULE$.create(fsPaths, fileSystem).addParams("nullValue", nullValue);
+      if (!FileSource$.MODULE$.isTableResultSet(fileSource)) {
         throw WorkspaceExceptionManager.createException(80024);
       }
       fsWriter = new StorageMultiExcelWriter(outputStream, autoFormat);

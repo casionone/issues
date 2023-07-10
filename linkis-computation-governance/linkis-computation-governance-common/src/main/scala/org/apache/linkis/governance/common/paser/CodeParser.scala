@@ -86,6 +86,11 @@ abstract class CombinedEngineCodeParser extends CodeParser {
 
 }
 
+/**
+ * Scala is no longer using Parser but instead using EmptyParser. If there is a comment at the end,
+ * it will cause the task to become stuck
+ */
+@deprecated
 class ScalaCodeParser extends SingleCodeParser with Logging {
 
   override val codeType: CodeType = CodeType.Scala
@@ -109,6 +114,9 @@ class ScalaCodeParser extends SingleCodeParser with Logging {
       case _ =>
     }
     if (statementBuffer.nonEmpty) codeBuffer.append(statementBuffer.mkString("\n"))
+    // Make sure the last line is not a comment
+    codeBuffer.append("\n")
+    codeBuffer.append("val linkisVar=123")
     codeBuffer.toArray
   }
 

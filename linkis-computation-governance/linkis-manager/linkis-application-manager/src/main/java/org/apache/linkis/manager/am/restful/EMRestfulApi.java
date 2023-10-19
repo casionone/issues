@@ -20,6 +20,8 @@ package org.apache.linkis.manager.am.restful;
 import org.apache.linkis.common.ServiceInstance;
 import org.apache.linkis.common.conf.Configuration;
 import org.apache.linkis.common.utils.JsonUtils;
+import org.apache.linkis.governance.common.protocol.conf.TenantRequest;
+import org.apache.linkis.governance.common.protocol.conf.TenantResponse;
 import org.apache.linkis.manager.am.conf.AMConfiguration;
 import org.apache.linkis.manager.am.converter.DefaultMetricsConverter;
 import org.apache.linkis.manager.am.exception.AMErrorCode;
@@ -35,16 +37,32 @@ import org.apache.linkis.manager.common.entity.metrics.NodeHealthyInfo;
 import org.apache.linkis.manager.common.entity.node.EMNode;
 import org.apache.linkis.manager.common.entity.node.EngineNode;
 import org.apache.linkis.manager.common.entity.persistence.ECResourceInfoRecord;
+import org.apache.linkis.manager.common.entity.persistence.PersistenceLabelRel;
+import org.apache.linkis.manager.common.entity.persistence.PersistenceResource;
+import org.apache.linkis.manager.common.entity.resource.UserResource;
 import org.apache.linkis.manager.common.protocol.OperateRequest$;
 import org.apache.linkis.manager.common.protocol.em.ECMOperateRequest;
 import org.apache.linkis.manager.common.protocol.em.ECMOperateRequest$;
 import org.apache.linkis.manager.common.protocol.em.ECMOperateResponse;
+import org.apache.linkis.manager.common.utils.ResourceUtils;
+import org.apache.linkis.manager.exception.PersistenceErrorException;
+import org.apache.linkis.manager.label.builder.CombinedLabelBuilder;
 import org.apache.linkis.manager.label.builder.factory.LabelBuilderFactory;
 import org.apache.linkis.manager.label.builder.factory.LabelBuilderFactoryContext;
 import org.apache.linkis.manager.label.entity.Label;
 import org.apache.linkis.manager.label.entity.UserModifiable;
+import org.apache.linkis.manager.label.entity.engine.EngineTypeLabel;
+import org.apache.linkis.manager.label.entity.engine.UserCreatorLabel;
 import org.apache.linkis.manager.label.exception.LabelErrorException;
 import org.apache.linkis.manager.label.service.NodeLabelService;
+import org.apache.linkis.manager.persistence.LabelManagerPersistence;
+import org.apache.linkis.manager.persistence.ResourceManagerPersistence;
+import org.apache.linkis.manager.rm.restful.RMMonitorRest;
+import org.apache.linkis.manager.rm.restful.vo.UserCreatorEngineType;
+import org.apache.linkis.manager.rm.restful.vo.UserResourceVo;
+import org.apache.linkis.manager.rm.utils.RMUtils;
+import org.apache.linkis.rpc.Sender;
+import org.apache.linkis.server.BDPJettyServerHelper;
 import org.apache.linkis.server.Message;
 import org.apache.linkis.server.utils.ModuleUserUtils;
 
@@ -68,6 +86,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.github.xiaoymin.knife4j.annotations.ApiOperationSupport;
+import com.google.common.collect.Lists;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
@@ -95,6 +114,11 @@ public class EMRestfulApi {
   @Autowired private ECMOperateService ecmOperateService;
 
   @Autowired private ECResourceInfoService ecResourceInfoService;
+
+  @Autowired private ResourceManagerPersistence resourceManagerPersistence;
+
+  @Autowired private LabelManagerPersistence labelManagerPersistence;
+
   private LabelBuilderFactory stdLabelBuilderFactory =
       LabelBuilderFactoryContext.getLabelBuilderFactory();
 
@@ -491,5 +515,112 @@ public class EMRestfulApi {
         .data("result", engineOperateResponse.getResult())
         .data("errorMsg", engineOperateResponse.errorMsg())
         .data("isError", engineOperateResponse.isError());
+  }
+
+  @ApiOperationSupport(ignoreParameters = {"jsonNode"})
+  @RequestMapping(path = "/taskprediction", method = RequestMethod.GET)
+  public Message taskprediction(
+      HttpServletRequest req,
+      @RequestParam(value = "username", required = false) String username,
+      @RequestParam(value = "engineType", required = false) String engineType,
+      @RequestParam(value = "creator", required = false) String creator)
+      throws PersistenceErrorException, LabelErrorException {
+    //    String userName = ModuleUserUtils.getOperationUser(req, "taskprediction");
+    // 获取yarn资源数据和用户资源数据
+    String searchUsername = StringUtils.isEmpty(username) ? "" : username;
+    String searchCreator = StringUtils.isEmpty(creator) ? "" : creator;
+    String searchEngineType = StringUtils.isEmpty(engineType) ? "" : engineType;
+    LabelBuilderFactory labelFactory = LabelBuilderFactoryContext.getLabelBuilderFactory();
+    UserCreatorLabel userCreatorLabel = labelFactory.createLabel(UserCreatorLabel.class);
+    EngineTypeLabel engineTypeLabel = labelFactory.createLabel(EngineTypeLabel.class);
+    Label<?> combinedLabel =
+        new CombinedLabelBuilder().build("", Lists.newArrayList(userCreatorLabel, engineTypeLabel));
+    String labelKey = combinedLabel.getLabelKey();
+    String labelValuePattern =
+        MessageFormat.format(
+            "%{0}%,%{1}%,%{2}%,%", searchCreator, searchUsername, searchEngineType);
+    List<PersistenceLabelRel> userLabels =
+        labelManagerPersistence.getLabelByPattern(labelValuePattern, labelKey, 0, 0);
+    List<PersistenceResource> resourceByLabels =
+        resourceManagerPersistence.getResourceByLabels(userLabels);
+    List<UserResourceVo> userResources = new ArrayList<>();
+    // 4. Store users and resources in Vo
+    for (PersistenceResource resource : resourceByLabels) {
+      UserResource userResource = ResourceUtils.fromPersistenceResourceAndUser(resource);
+      PersistenceLabelRel userLabel = null;
+      for (PersistenceLabelRel label : userLabels) {
+        if (label.getResourceId().equals(resource.getId())) {
+          userLabel = label;
+        }
+      }
+      if (userLabel != null) {
+        UserCreatorEngineType userCreatorEngineType =
+            BDPJettyServerHelper.gson()
+                .fromJson(userLabel.getStringValue(), UserCreatorEngineType.class);
+        if (userCreatorEngineType != null) {
+          userResource.setUsername(userCreatorEngineType.getUser());
+          userResource.setCreator(userCreatorEngineType.getCreator());
+          userResource.setEngineType(userCreatorEngineType.getEngineType());
+          userResource.setVersion(userCreatorEngineType.getVersion());
+        }
+      }
+      userResources.add(RMUtils.toUserResourceVo(userResource));
+    }
+
+
+
+    // 获取租户标签数据
+    String tenant = "";
+    List<EMNodeVo> emNodeVos = AMUtils.copyToEMVo(emInfoService.getAllEM());
+    List<EMNodeVo> emNodeList = new ArrayList<>();
+    for (EMNodeVo emNodeVo : emNodeVos) {
+      List<Label> labels = emNodeVo.getLabels();
+      //    tenant不为空
+      if (StringUtils.isNotBlank(tenant)) {
+        String finalTenant = tenant;
+        labels =
+            labels.stream()
+                .filter(
+                    label ->
+                        KEY_TENANT.equals(label.getLabelKey())
+                            && label.getStringValue().contains(finalTenant))
+                .collect(Collectors.toList());
+        if (labels.size() > 0) {
+          emNodeList.add(emNodeVo);
+        }
+      } else {
+        labels =
+            labels.stream()
+                .filter(label -> !KEY_TENANT.equals(label.getLabelKey()))
+                .collect(Collectors.toList());
+        if (labels.size() > 0) {
+          emNodeList.add(emNodeVo);
+        }
+      }
+      if (labels.size() > 0) {
+        emNodeList.add(emNodeVo);
+      }
+    }
+
+    // 获取租户标签数据
+    Sender sender =
+        Sender.getSender(
+            Configuration.CLOUD_CONSOLE_CONFIGURATION_SPRING_APPLICATION_NAME().getValue());
+    TenantResponse ask = (TenantResponse) sender.ask(new TenantRequest(username, creator));
+    if (null == ask) {
+      ask = (TenantResponse) sender.ask(new TenantRequest(username, "*"));
+      if (null == ask) {
+        ask = (TenantResponse) sender.ask(new TenantRequest("*", creator));
+        if (null != ask) {
+          tenant = ask.tenant();
+        }
+      } else {
+        tenant = ask.tenant();
+      }
+    } else {
+      tenant = ask.tenant();
+    }
+
+    return Message.ok().data("test", userResources);
   }
 }

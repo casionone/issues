@@ -31,6 +31,7 @@ import org.apache.linkis.manager.am.service.ECResourceInfoService;
 import org.apache.linkis.manager.am.service.em.ECMOperateService;
 import org.apache.linkis.manager.am.service.em.EMInfoService;
 import org.apache.linkis.manager.am.utils.AMUtils;
+import org.apache.linkis.manager.am.vo.ConfigVo;
 import org.apache.linkis.manager.am.vo.EMNodeVo;
 import org.apache.linkis.manager.common.entity.enumeration.NodeHealthy;
 import org.apache.linkis.manager.common.entity.metrics.NodeHealthyInfo;
@@ -39,30 +40,22 @@ import org.apache.linkis.manager.common.entity.node.EngineNode;
 import org.apache.linkis.manager.common.entity.persistence.ECResourceInfoRecord;
 import org.apache.linkis.manager.common.entity.persistence.PersistenceLabelRel;
 import org.apache.linkis.manager.common.entity.persistence.PersistenceResource;
-import org.apache.linkis.manager.common.entity.resource.UserResource;
 import org.apache.linkis.manager.common.protocol.OperateRequest$;
 import org.apache.linkis.manager.common.protocol.em.ECMOperateRequest;
 import org.apache.linkis.manager.common.protocol.em.ECMOperateRequest$;
 import org.apache.linkis.manager.common.protocol.em.ECMOperateResponse;
-import org.apache.linkis.manager.common.utils.ResourceUtils;
 import org.apache.linkis.manager.exception.PersistenceErrorException;
-import org.apache.linkis.manager.label.builder.CombinedLabelBuilder;
 import org.apache.linkis.manager.label.builder.factory.LabelBuilderFactory;
 import org.apache.linkis.manager.label.builder.factory.LabelBuilderFactoryContext;
 import org.apache.linkis.manager.label.entity.Label;
 import org.apache.linkis.manager.label.entity.UserModifiable;
-import org.apache.linkis.manager.label.entity.engine.EngineTypeLabel;
-import org.apache.linkis.manager.label.entity.engine.UserCreatorLabel;
 import org.apache.linkis.manager.label.exception.LabelErrorException;
 import org.apache.linkis.manager.label.service.NodeLabelService;
 import org.apache.linkis.manager.persistence.LabelManagerPersistence;
 import org.apache.linkis.manager.persistence.ResourceManagerPersistence;
-import org.apache.linkis.manager.rm.restful.RMMonitorRest;
-import org.apache.linkis.manager.rm.restful.vo.UserCreatorEngineType;
 import org.apache.linkis.manager.rm.restful.vo.UserResourceVo;
 import org.apache.linkis.manager.rm.utils.RMUtils;
 import org.apache.linkis.rpc.Sender;
-import org.apache.linkis.server.BDPJettyServerHelper;
 import org.apache.linkis.server.Message;
 import org.apache.linkis.server.utils.ModuleUserUtils;
 
@@ -70,6 +63,10 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -77,6 +74,7 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
 
+import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -85,8 +83,8 @@ import java.util.stream.Stream;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.xiaoymin.knife4j.annotations.ApiOperationSupport;
-import com.google.common.collect.Lists;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
@@ -523,104 +521,98 @@ public class EMRestfulApi {
       HttpServletRequest req,
       @RequestParam(value = "username", required = false) String username,
       @RequestParam(value = "engineType", required = false) String engineType,
-      @RequestParam(value = "creator", required = false) String creator)
-      throws PersistenceErrorException, LabelErrorException {
+      @RequestParam(value = "creator", required = false) String creator,
+      @RequestParam(value = "queueName", required = false) String queueName,
+      @RequestParam(value = "tenant", required = false) String tenant)
+      throws PersistenceErrorException {
     //    String userName = ModuleUserUtils.getOperationUser(req, "taskprediction");
+    String tokenName = "";
+    if (StringUtils.isBlank(username)) {
+      username = tokenName;
+    }
+    if (StringUtils.isBlank(engineType)) {
+      Message.error("parameters:engineType can't be null (请求参数【engineType】不能为空)");
+    }
+    if (StringUtils.isBlank(creator)) {
+      Message.error("parameters:creator can't be null (请求参数【creator】不能为空)");
+    }
     // 获取yarn资源数据和用户资源数据
-    String searchUsername = StringUtils.isEmpty(username) ? "" : username;
-    String searchCreator = StringUtils.isEmpty(creator) ? "" : creator;
-    String searchEngineType = StringUtils.isEmpty(engineType) ? "" : engineType;
-    LabelBuilderFactory labelFactory = LabelBuilderFactoryContext.getLabelBuilderFactory();
-    UserCreatorLabel userCreatorLabel = labelFactory.createLabel(UserCreatorLabel.class);
-    EngineTypeLabel engineTypeLabel = labelFactory.createLabel(EngineTypeLabel.class);
-    Label<?> combinedLabel =
-        new CombinedLabelBuilder().build("", Lists.newArrayList(userCreatorLabel, engineTypeLabel));
-    String labelKey = combinedLabel.getLabelKey();
     String labelValuePattern =
-        MessageFormat.format(
-            "%{0}%,%{1}%,%{2}%,%", searchCreator, searchUsername, searchEngineType);
+        MessageFormat.format("%{0}%,%{1}%,%{2}%,%", creator, username, engineType);
     List<PersistenceLabelRel> userLabels =
-        labelManagerPersistence.getLabelByPattern(labelValuePattern, labelKey, 0, 0);
-    List<PersistenceResource> resourceByLabels =
+        labelManagerPersistence.getLabelByPattern(
+            labelValuePattern, RMUtils.getCombinedLabel(), 0, 0);
+    List<PersistenceResource> resources =
         resourceManagerPersistence.getResourceByLabels(userLabels);
-    List<UserResourceVo> userResources = new ArrayList<>();
-    // 4. Store users and resources in Vo
-    for (PersistenceResource resource : resourceByLabels) {
-      UserResource userResource = ResourceUtils.fromPersistenceResourceAndUser(resource);
-      PersistenceLabelRel userLabel = null;
-      for (PersistenceLabelRel label : userLabels) {
-        if (label.getResourceId().equals(resource.getId())) {
-          userLabel = label;
-        }
-      }
-      if (userLabel != null) {
-        UserCreatorEngineType userCreatorEngineType =
-            BDPJettyServerHelper.gson()
-                .fromJson(userLabel.getStringValue(), UserCreatorEngineType.class);
-        if (userCreatorEngineType != null) {
-          userResource.setUsername(userCreatorEngineType.getUser());
-          userResource.setCreator(userCreatorEngineType.getCreator());
-          userResource.setEngineType(userCreatorEngineType.getEngineType());
-          userResource.setVersion(userCreatorEngineType.getVersion());
-        }
-      }
-      userResources.add(RMUtils.toUserResourceVo(userResource));
-    }
-
-
+    ArrayList<UserResourceVo> userResources = RMUtils.getUserResources(userLabels, resources);
 
     // 获取租户标签数据
-    String tenant = "";
+    if (StringUtils.isBlank(tenant)) {
+      Sender sender =
+          Sender.getSender(
+              Configuration.CLOUD_CONSOLE_CONFIGURATION_SPRING_APPLICATION_NAME().getValue());
+      TenantResponse response = (TenantResponse) sender.ask(new TenantRequest(username, creator));
+      if (StringUtils.isBlank(response.tenant())) {
+        response = (TenantResponse) sender.ask(new TenantRequest(username, "*"));
+        if (StringUtils.isBlank(response.tenant())) {
+          response = (TenantResponse) sender.ask(new TenantRequest("*", creator));
+        }
+      }
+      tenant = response.tenant();
+    }
+
+    // 获取ecm列表数据
     List<EMNodeVo> emNodeVos = AMUtils.copyToEMVo(emInfoService.getAllEM());
-    List<EMNodeVo> emNodeList = new ArrayList<>();
-    for (EMNodeVo emNodeVo : emNodeVos) {
-      List<Label> labels = emNodeVo.getLabels();
-      //    tenant不为空
-      if (StringUtils.isNotBlank(tenant)) {
-        String finalTenant = tenant;
-        labels =
-            labels.stream()
-                .filter(
-                    label ->
-                        KEY_TENANT.equals(label.getLabelKey())
-                            && label.getStringValue().contains(finalTenant))
-                .collect(Collectors.toList());
-        if (labels.size() > 0) {
-          emNodeList.add(emNodeVo);
-        }
-      } else {
-        labels =
-            labels.stream()
-                .filter(label -> !KEY_TENANT.equals(label.getLabelKey()))
-                .collect(Collectors.toList());
-        if (labels.size() > 0) {
-          emNodeList.add(emNodeVo);
+    String finalTenant = tenant;
+    List<EMNodeVo> collect =
+        emNodeVos.stream()
+            .filter(
+                emNodeVo -> {
+                  Stream<Label> labelStream = emNodeVo.getLabels().stream();
+                  if (StringUtils.isNotBlank(finalTenant)) {
+                    return labelStream.anyMatch(
+                        label ->
+                            KEY_TENANT.equals(label.getLabelKey())
+                                && label.getStringValue().contains(finalTenant));
+                  } else {
+                    return labelStream.noneMatch(label -> KEY_TENANT.equals(label.getLabelKey()));
+                  }
+                })
+            .collect(Collectors.toList());
+
+    // 获取配置值
+    String responseStr = "";
+    List<ConfigVo> configlist = new ArrayList<>();
+    try {
+      HttpClient httpClient = HttpClients.createDefault();
+      String url =
+          MessageFormat.format(
+              "/api/rest_j/v1/configuration/getFullTreesByAppName?creator={0}&engineType={1}",
+              creator, engineType);
+      HttpGet httpGet = new HttpGet(Configuration.getGateWayURL() + url);
+      httpGet.addHeader("Token-User", username);
+      httpGet.addHeader("Token-Code", "BML-AUTH");
+      responseStr = EntityUtils.toString(httpClient.execute(httpGet).getEntity());
+      ObjectMapper objectMapper = new ObjectMapper();
+      JsonNode fullTree = objectMapper.readTree(responseStr).get("data").get("fullTree");
+      for (JsonNode node : fullTree) {
+        JsonNode settingsList = node.get("settings");
+        for (JsonNode key : settingsList) {
+          configlist.add(
+              new ConfigVo(
+                  key.get("key").asText(),
+                  key.get("configValue").asText(),
+                  key.get("defaultValue").asText()));
         }
       }
-      if (labels.size() > 0) {
-        emNodeList.add(emNodeVo);
-      }
+    } catch (IOException e) {
+      e.printStackTrace();
     }
 
-    // 获取租户标签数据
-    Sender sender =
-        Sender.getSender(
-            Configuration.CLOUD_CONSOLE_CONFIGURATION_SPRING_APPLICATION_NAME().getValue());
-    TenantResponse ask = (TenantResponse) sender.ask(new TenantRequest(username, creator));
-    if (null == ask) {
-      ask = (TenantResponse) sender.ask(new TenantRequest(username, "*"));
-      if (null == ask) {
-        ask = (TenantResponse) sender.ask(new TenantRequest("*", creator));
-        if (null != ask) {
-          tenant = ask.tenant();
-        }
-      } else {
-        tenant = ask.tenant();
-      }
-    } else {
-      tenant = ask.tenant();
-    }
-
-    return Message.ok().data("test", userResources);
+    return Message.ok()
+        .data("test", userResources)
+        .data("tenant", tenant)
+        .data("test3", collect)
+        .data("test4", configlist);
   }
 }

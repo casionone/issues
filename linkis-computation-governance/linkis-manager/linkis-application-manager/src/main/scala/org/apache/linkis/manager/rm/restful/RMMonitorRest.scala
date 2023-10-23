@@ -164,7 +164,7 @@ class RMMonitorRest extends Logging {
     }
 
     if (resourceId == null || resourceId <= 0) {
-      userResourceService.resetAllUserResource(COMBINED_USERCREATOR_ENGINETYPE)
+      userResourceService.resetAllUserResource(RMUtils.COMBINED_USERCREATOR_ENGINETYPE)
     } else {
       userResourceService.resetUserResource(resourceId)
     }
@@ -200,41 +200,17 @@ class RMMonitorRest extends Logging {
     // label value in db as :{"creator":"nodeexecution","user":"hadoop","engineType":"appconn","version":"1"}
     val labelValuePattern =
       MessageFormat.format("%{0}%,%{1}%,%{2}%,%", searchCreator, searchUsername, searchEngineType)
-
-    if (COMBINED_USERCREATOR_ENGINETYPE == null) {
-      val userCreatorLabel = labelFactory.createLabel(classOf[UserCreatorLabel])
-      val engineTypeLabel = labelFactory.createLabel(classOf[EngineTypeLabel])
-      val combinedLabel =
-        combinedLabelBuilder.build("", Lists.newArrayList(userCreatorLabel, engineTypeLabel))
-      COMBINED_USERCREATOR_ENGINETYPE = combinedLabel.getLabelKey
-    }
     // 2. The resource label of all users, including the associated resourceId
     val resultPage = PageMethod.startPage(page, size)
     val userLabels = labelManagerPersistence.getLabelByPattern(
       labelValuePattern,
-      COMBINED_USERCREATOR_ENGINETYPE,
+      RMUtils.getCombinedLabel,
       page,
       size
     )
     // 3. All user resources, including resourceId
     val resources = resourceManagerPersistence.getResourceByLabels(userLabels)
-    val userResources = new util.ArrayList[UserResourceVo]()
-    // 4. Store users and resources in Vo
-    resources.asScala.foreach(resource => {
-      val userResource = ResourceUtils.fromPersistenceResourceAndUser(resource)
-      val userLabel = userLabels.asScala.find(_.getResourceId.equals(resource.getId)).orNull
-      if (userLabel != null) {
-        val userCreatorEngineType =
-          gson.fromJson(userLabel.getStringValue, classOf[UserCreatorEngineType])
-        if (userCreatorEngineType != null) {
-          userResource.setUsername(userCreatorEngineType.getUser)
-          userResource.setCreator(userCreatorEngineType.getCreator)
-          userResource.setEngineType(userCreatorEngineType.getEngineType)
-          userResource.setVersion(userCreatorEngineType.getVersion)
-        }
-      }
-      userResources.add(RMUtils.toUserResourceVo(userResource))
-    })
+    val userResources = RMUtils.getUserResources(userLabels, resources)
     Message.ok().data("resources", userResources).data("total", resultPage.getTotal)
   }
 

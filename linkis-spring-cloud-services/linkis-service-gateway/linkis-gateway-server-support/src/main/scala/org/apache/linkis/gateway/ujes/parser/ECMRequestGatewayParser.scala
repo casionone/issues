@@ -37,32 +37,24 @@ class ECMRequestGatewayParser extends AbstractGatewayParser {
     logger.info("start begin  ECMRequestGatewayParser {}", gatewayContext)
     gatewayContext.getRequest.getRequestURI match {
       case ECMRequestGatewayParser.ECM_EXECUTION_REGEX(version, execId) =>
-        logger.info("----------------------1")
         if (sendResponseWhenNotMatchVersion(gatewayContext, version)) return
-        logger.info("----------------------2")
         val serviceInstance =
           if (
               gatewayContext.getRequest.getQueryParams.containsKey(ECMRequestGatewayParser.INSTANCE)
           ) {
-            logger.info("----------------------3")
             val instances =
               gatewayContext.getRequest.getQueryParams.get(ECMRequestGatewayParser.INSTANCE)
-            logger.info("----------------------{}", instances)
             if (null != instances && instances.length == 1) {
-              logger.info("----------------------4")
               ServiceInstance(
                 GatewayConfiguration.ENGINECONN_MANAGER_SPRING_NAME.getValue,
                 instances(0)
               )
             } else {
-              logger.info("----------------------5")
               ServiceInstance(GatewayConfiguration.ENGINECONN_MANAGER_SPRING_NAME.getValue, null)
             }
           } else {
-            logger.info("----------------------22")
             ServiceInstance(GatewayConfiguration.ENGINECONN_MANAGER_SPRING_NAME.getValue, null)
           }
-        logger.info("----------------------serviceInstance {}", serviceInstance)
         gatewayContext.getGatewayRoute.setServiceInstance(serviceInstance)
       case _ =>
     }

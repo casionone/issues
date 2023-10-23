@@ -19,6 +19,7 @@ package org.apache.linkis.ecm.restful;
 
 import org.apache.linkis.common.utils.JsonUtils;
 import org.apache.linkis.ecm.server.exception.ECMErrorException;
+import org.apache.linkis.server.utils.ModuleUserUtils;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.http.Consts;
@@ -46,6 +47,7 @@ import io.swagger.annotations.Api;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.linkis.ecm.errorcode.EngineconnServerErrorCodeSummary.FILE_IS_OVERSIZE;
 import static org.apache.linkis.ecm.errorcode.EngineconnServerErrorCodeSummary.LOG_IS_NOT_EXISTS;
 
 @Api(tags = "ECM")
@@ -59,8 +61,7 @@ public class ECMRestfulApi {
   public void downloadEngineLog(
       HttpServletRequest req, HttpServletResponse response, @RequestBody JsonNode jsonNode)
       throws IOException, ECMErrorException {
-    //        String userName = ModuleUserUtils.getOperationUser(req, "openEngineLog");
-    String emInstance = jsonNode.get("emInstance").asText();
+    ModuleUserUtils.getOperationUser(req, "downloadEngineLog");
     String instance = jsonNode.get("instance").asText();
     Map<String, Object> parameters = new HashMap<>();
     try {
@@ -83,6 +84,13 @@ public class ECMRestfulApi {
           LOG_IS_NOT_EXISTS.getErrorCode(),
           MessageFormat.format(LOG_IS_NOT_EXISTS.getErrorDesc(), logDirSuffix));
     } else {
+      long fileSizeInBytes = inputFile.length();
+      long fileSizeInMegabytes = fileSizeInBytes / (1024 * 1024);
+      if (fileSizeInMegabytes > 100) {
+        throw new ECMErrorException(
+            FILE_IS_OVERSIZE.getErrorCode(),
+            MessageFormat.format(FILE_IS_OVERSIZE.getErrorDesc(), logDirSuffix));
+      }
       ServletOutputStream outputStream = null;
       FileInputStream inputStream = null;
       BufferedInputStream fis = null;

@@ -17,17 +17,15 @@
 
 package org.apache.linkis.ecm.restful;
 
-import org.apache.linkis.common.utils.JsonUtils;
 import org.apache.linkis.ecm.server.exception.ECMErrorException;
+import org.apache.linkis.server.Message;
 import org.apache.linkis.server.utils.ModuleUserUtils;
 
 import org.apache.commons.io.IOUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.http.Consts;
 
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestMethod;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletRequest;
@@ -37,18 +35,16 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.text.MessageFormat;
-import java.util.HashMap;
-import java.util.Map;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
+import com.github.xiaoymin.knife4j.annotations.ApiOperationSupport;
 import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiImplicitParam;
+import io.swagger.annotations.ApiImplicitParams;
+import io.swagger.annotations.ApiOperation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import static org.apache.linkis.ecm.errorcode.EngineconnServerErrorCodeSummary.FILE_IS_OVERSIZE;
-import static org.apache.linkis.ecm.errorcode.EngineconnServerErrorCodeSummary.LOG_IS_NOT_EXISTS;
+import static org.apache.linkis.ecm.errorcode.EngineconnServerErrorCodeSummary.*;
 
 @Api(tags = "ECM")
 @RequestMapping(path = "/engineconnManager")
@@ -57,27 +53,42 @@ public class ECMRestfulApi {
 
   private final Logger logger = LoggerFactory.getLogger(ECMRestfulApi.class);
 
-  @RequestMapping(path = "/downloadEngineLog", method = RequestMethod.POST)
+  @ApiOperation(
+      value = "downloadEngineLog",
+      notes = "download engine log",
+      response = Message.class)
+  @ApiImplicitParams({
+    @ApiImplicitParam(name = "emInstance", required = true, dataType = "String"),
+    @ApiImplicitParam(name = "instance", required = true, dataType = "String"),
+    @ApiImplicitParam(name = "logDirSuffix", required = true, dataType = "String"),
+    @ApiImplicitParam(name = "logType", required = true, dataType = "String")
+  })
+  @ApiOperationSupport(ignoreParameters = {"json"})
+  @RequestMapping(path = "/downloadEngineLog", method = RequestMethod.GET)
   public void downloadEngineLog(
-      HttpServletRequest req, HttpServletResponse response, @RequestBody JsonNode jsonNode)
+      HttpServletRequest req,
+      HttpServletResponse response,
+      @RequestParam(value = "emInstance") String emInstance,
+      @RequestParam(value = "instance") String instance,
+      @RequestParam(value = "logDirSuffix") String logDirSuffix,
+      @RequestParam(value = "logType") String logType)
       throws IOException, ECMErrorException {
     ModuleUserUtils.getOperationUser(req, "downloadEngineLog");
-    String instance = jsonNode.get("instance").asText();
-    Map<String, Object> parameters = new HashMap<>();
-    try {
-      parameters =
-          JsonUtils.jackson()
-              .readValue(
-                  jsonNode.get("parameters").toString(),
-                  new TypeReference<Map<String, Object>>() {});
-    } catch (JsonProcessingException e) {
-      logger.error(
-          "Fail to process the operation parameters: [{}] in request",
-          jsonNode.get("parameters").toString(),
-          e);
+    if (StringUtils.isBlank(instance)) {
+      throw new ECMErrorException(
+          PARAMETER_NOT_NULL.getErrorCode(),
+          MessageFormat.format(PARAMETER_NOT_NULL.getErrorDesc(), "instance"));
     }
-    String logType = (String) parameters.get("logType");
-    String logDirSuffix = (String) parameters.get("logDirSuffix");
+    if (StringUtils.isBlank(logDirSuffix)) {
+      throw new ECMErrorException(
+          PARAMETER_NOT_NULL.getErrorCode(),
+          MessageFormat.format(PARAMETER_NOT_NULL.getErrorDesc(), "logDirSuffix"));
+    }
+    if (StringUtils.isBlank(logType)) {
+      throw new ECMErrorException(
+          PARAMETER_NOT_NULL.getErrorCode(),
+          MessageFormat.format(PARAMETER_NOT_NULL.getErrorDesc(), "logType"));
+    }
     File inputFile = new File(logDirSuffix, logType);
     if (!inputFile.exists()) {
       throw new ECMErrorException(
@@ -100,19 +111,19 @@ public class ECMRestfulApi {
         fis = new BufferedInputStream(inputStream);
         byte[] buffer = new byte[1024];
         int bytesRead = 0;
-        response.reset();
         response.setCharacterEncoding(Consts.UTF_8.toString());
         java.nio.file.Path source = Paths.get(inputFile.getPath());
         response.addHeader("Content-Type", Files.probeContentType(source));
         response.addHeader(
             "Content-Disposition",
             "attachment;filename=" + instance.replace(":", "_") + "_" + logType + ".txt");
+        response.addHeader("Content-Length", fileSizeInBytes + "");
         outputStream = response.getOutputStream();
         while ((bytesRead = fis.read(buffer, 0, 1024)) != -1) {
           outputStream.write(buffer, 0, bytesRead);
         }
       } catch (IOException e) {
-        logger.error("download failed", e);
+        logger.error("download failed:", e);
         response.reset();
         response.setCharacterEncoding(Consts.UTF_8.toString());
         response.setContentType("text/plain; charset=utf-8");

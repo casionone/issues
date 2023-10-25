@@ -70,6 +70,6 @@ object ECMRequestGatewayParser {
   val ECM_EXECUTION_REGEX =
     (ECM_HEADER + "(downloadEngineLog)").r
 
-  val INSTANCE = "instance"
+  val INSTANCE = "emInstance"
 
 }

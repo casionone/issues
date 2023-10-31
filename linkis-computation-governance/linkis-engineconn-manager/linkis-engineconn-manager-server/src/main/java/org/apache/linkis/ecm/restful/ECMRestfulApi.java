@@ -114,6 +114,7 @@ public class ECMRestfulApi {
         response.setCharacterEncoding(Consts.UTF_8.toString());
         java.nio.file.Path source = Paths.get(inputFile.getPath());
         response.addHeader("Content-Type", Files.probeContentType(source));
+        // filename eg:bdpdws110002_11529_stdout.txt
         response.addHeader(
             "Content-Disposition",
             "attachment;filename=" + instance.replace(":", "_") + "_" + logType + ".txt");

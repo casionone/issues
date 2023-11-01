@@ -17,25 +17,26 @@
 
 package org.apache.linkis.manager.am.util;
 
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import org.apache.commons.lang3.StringUtils;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.util.EntityUtils;
 import org.apache.linkis.common.conf.Configuration;
 import org.apache.linkis.governance.common.protocol.conf.TenantRequest;
 import org.apache.linkis.governance.common.protocol.conf.TenantResponse;
 import org.apache.linkis.manager.am.vo.ConfigVo;
 import org.apache.linkis.rpc.Sender;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+
+import org.apache.commons.lang3.StringUtils;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
 
 import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class EMUtils {
 
@@ -43,8 +44,8 @@ public class EMUtils {
 
   public static String getTenant(String username, String creator) {
     Sender sender =
-            Sender.getSender(
-                    Configuration.CLOUD_CONSOLE_CONFIGURATION_SPRING_APPLICATION_NAME().getValue());
+        Sender.getSender(
+            Configuration.CLOUD_CONSOLE_CONFIGURATION_SPRING_APPLICATION_NAME().getValue());
     TenantResponse response = (TenantResponse) sender.ask(new TenantRequest(username, creator));
     if (StringUtils.isBlank(response.tenant())) {
       response = (TenantResponse) sender.ask(new TenantRequest(username, "*"));
@@ -55,28 +56,28 @@ public class EMUtils {
     return response.tenant();
   }
 
-
-  public static List<ConfigVo> getUserConf(String username, String creator,String engineType) {
+  public static List<ConfigVo> getUserConf(String username, String creator, String engineType) {
     // 获取用户配置信息
     List<ConfigVo> configlist = new ArrayList<>();
     try {
       String url =
-              MessageFormat.format(
-                      "/api/rest_j/v1/configuration/getFullTreesByAppName?creator={0}&engineType={1}",
-                      creator, engineType);
+          MessageFormat.format(
+              "/api/rest_j/v1/configuration/getFullTreesByAppName?creator={0}&engineType={1}",
+              creator, engineType);
       HttpGet httpGet = new HttpGet(Configuration.getGateWayURL() + url);
       httpGet.addHeader("Token-User", username);
       httpGet.addHeader("Token-Code", "BML-AUTH");
-      String responseStr = EntityUtils.toString(HttpClients.createDefault().execute(httpGet).getEntity());
+      String responseStr =
+          EntityUtils.toString(HttpClients.createDefault().execute(httpGet).getEntity());
       JsonNode fullTree = new ObjectMapper().readTree(responseStr).get("data").get("fullTree");
       for (JsonNode node : fullTree) {
         JsonNode settingsList = node.get("settings");
         for (JsonNode key : settingsList) {
           configlist.add(
-                  new ConfigVo(
-                          key.get("key").asText(),
-                          key.get("configValue").asText(),
-                          key.get("defaultValue").asText()));
+              new ConfigVo(
+                  key.get("key").asText(),
+                  key.get("configValue").asText(),
+                  key.get("defaultValue").asText()));
         }
       }
     } catch (IOException e) {

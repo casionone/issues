@@ -17,12 +17,10 @@
 
 package org.apache.linkis.manager.am.restful;
 
-import com.google.common.collect.Lists;
 import org.apache.linkis.common.ServiceInstance;
 import org.apache.linkis.common.conf.Configuration;
+import org.apache.linkis.common.utils.ByteTimeUtils;
 import org.apache.linkis.common.utils.JsonUtils;
-import org.apache.linkis.governance.common.protocol.conf.TenantRequest;
-import org.apache.linkis.governance.common.protocol.conf.TenantResponse;
 import org.apache.linkis.manager.am.conf.AMConfiguration;
 import org.apache.linkis.manager.am.converter.DefaultMetricsConverter;
 import org.apache.linkis.manager.am.exception.AMErrorCode;
@@ -43,7 +41,6 @@ import org.apache.linkis.manager.common.entity.persistence.ECResourceInfoRecord;
 import org.apache.linkis.manager.common.entity.persistence.PersistenceLabelRel;
 import org.apache.linkis.manager.common.entity.persistence.PersistenceResource;
 import org.apache.linkis.manager.common.entity.resource.NodeResource;
-import org.apache.linkis.manager.common.entity.resource.Resource;
 import org.apache.linkis.manager.common.entity.resource.ResourceType;
 import org.apache.linkis.manager.common.entity.resource.YarnResource;
 import org.apache.linkis.manager.common.exception.RMErrorException;
@@ -67,7 +64,6 @@ import org.apache.linkis.manager.rm.external.service.ExternalResourceService;
 import org.apache.linkis.manager.rm.external.yarn.YarnResourceIdentifier;
 import org.apache.linkis.manager.rm.restful.vo.UserResourceVo;
 import org.apache.linkis.manager.rm.utils.RMUtils;
-import org.apache.linkis.rpc.Sender;
 import org.apache.linkis.server.Message;
 import org.apache.linkis.server.utils.ModuleUserUtils;
 
@@ -75,10 +71,6 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.util.EntityUtils;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -86,7 +78,6 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.servlet.http.HttpServletRequest;
 
-import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -95,15 +86,14 @@ import java.util.stream.Stream;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.xiaoymin.knife4j.annotations.ApiOperationSupport;
+import com.google.common.collect.Lists;
 import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiImplicitParam;
 import io.swagger.annotations.ApiImplicitParams;
 import io.swagger.annotations.ApiOperation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import scala.annotation.meta.param;
 
 @Api(tags = "ECM(engineconnmanager) operation")
 @RequestMapping(
@@ -540,9 +530,10 @@ public class EMRestfulApi {
       @RequestParam(value = "clustername", required = false) String clusterName,
       @RequestParam(value = "queueName", required = false) String queueName,
       @RequestParam(value = "tenant", required = false) String tenant)
-          throws PersistenceErrorException, RMErrorException {
+      throws PersistenceErrorException, RMErrorException {
     //    String tokenName = ModuleUserUtils.getOperationUser(req, "taskprediction");
     String tokenName = "";
+    Boolean checkResult = false;
     if (StringUtils.isBlank(username)) {
       username = tokenName;
     }
@@ -555,8 +546,6 @@ public class EMRestfulApi {
 
     // 获取用户配置信息
     List<ConfigVo> configlist = EMUtils.getUserConf(username, creator, engineType);
-
-
 
     // 获取租户标签数据
     if (StringUtils.isBlank(tenant)) {
@@ -576,34 +565,37 @@ public class EMRestfulApi {
         resourceManagerPersistence.getResourceByLabels(userLabels);
     ArrayList<UserResourceVo> userResources = RMUtils.getUserResources(userLabels, resources);
 
-
     Map<String, Object> yarnResource = new HashMap<>();
-    String queueName = "";
     if (engineType.toLowerCase().contains("spark")) {
       if (StringUtils.isBlank(queueName)) {
         // 如果没有传 队列名称，从用户配置获取
-        Optional<ConfigVo> first = configlist.stream().filter(configVo -> configVo.getKey().equals(AMConfiguration.YARN_QUEUE_NAME_CONFIG_KEY())).findFirst();
-        first.ifPresent(configVo -> queueName = configVo.getConfigValue());
+        for (ConfigVo configVo : configlist) {
+          if (configVo.getKey().equals(AMConfiguration.YARN_QUEUE_NAME_CONFIG_KEY())) {
+            queueName = configVo.getConfigValue();
+          }
+        }
       }
-
       // 获取yarn资源数据
       ClusterLabel clusterLabel = LabelManagerUtils.labelFactory().createLabel(ClusterLabel.class);
       clusterLabel.setClusterName(clusterName);
       RMLabelContainer labelContainer = new RMLabelContainer(Lists.newArrayList(clusterLabel));
       YarnResourceIdentifier yarnIdentifier = new YarnResourceIdentifier(queueName);
-      NodeResource providedYarnResource = externalResourceService.getResource(ResourceType.Yarn, labelContainer, yarnIdentifier);
-      yarnResource.put("maxResource", providedYarnResource.getMaxResource());
-      yarnResource.put("usedResource", providedYarnResource.getUsedResource());
+      NodeResource providedYarnResource =
+          externalResourceService.getResource(ResourceType.Yarn, labelContainer, yarnIdentifier);
+      YarnResource maxResource = (YarnResource) providedYarnResource.getMaxResource();
+      YarnResource usedResource = (YarnResource) providedYarnResource.getUsedResource();
+      yarnResource.put("maxResource", maxResource);
+      yarnResource.put("usedResource", usedResource);
+      // 对比yarn资源
+      long maxMemory = ByteTimeUtils.negativeByteStringAsGb(maxResource.queueMemory() + "b");
+      long usedMemory = ByteTimeUtils.negativeByteStringAsGb(usedResource.queueMemory() + "b");
+
+      boolean s3 = maxMemory - usedMemory > 0;
+
+      boolean s1 = maxResource.queueCores() - usedResource.queueCores() > 0;
+
+      checkResult = s1 && s3;
     }
-
-
-
-
-
-
-
-
-
     // 获取ecm列表数据
     List<EMNodeVo> emNodeVos = AMUtils.copyToEMVo(emInfoService.getAllEM());
     String finalTenant = tenant;
@@ -621,15 +613,27 @@ public class EMRestfulApi {
                     return labelStream.noneMatch(label -> KEY_TENANT.equals(label.getLabelKey()));
                   }
                 })
+            .filter(emNodeVo -> emNodeVo.getNodeHealthy().equals(NodeHealthy.Healthy))
             .collect(Collectors.toList());
-
-
+    // 数据对比（ecm内存资源的比对)，内存剩余资源 > 引擎启动配置，剩余核心>0，剩余实例>0
+    checkResult =
+        ecmResource.stream()
+            .anyMatch(
+                emNodeVo -> {
+                  Map leftResource = emNodeVo.getLeftResource();
+                  long memory =
+                      ByteTimeUtils.negativeByteStringAsGb(
+                          leftResource.get("memory").toString() + "b");
+                  int cores = (int) leftResource.get("cores");
+                  int instance = (int) leftResource.get("instance");
+                  return memory > 0 && cores > 0 && instance > 0;
+                });
     return Message.ok()
         .data("tenant", tenant)
         .data("userConf", configlist)
         .data("userResource", userResources)
         .data("ecmResource", ecmResource)
-        .data("YarnResource", yarnResource)
-        .data("checkResult", false);
+        .data("yarnResource", yarnResource)
+        .data("checkResult", checkResult);
   }
 }

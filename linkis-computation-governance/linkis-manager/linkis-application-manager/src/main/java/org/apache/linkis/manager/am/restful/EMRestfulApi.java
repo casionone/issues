@@ -520,6 +520,18 @@ public class EMRestfulApi {
         .data("isError", engineOperateResponse.isError());
   }
 
+
+
+
+  @ApiOperation(value = "taskprediction", notes = "linkis task taskprediction", response = Message.class)
+  @ApiImplicitParams({
+          @ApiImplicitParam(name = "username", dataType = "String", example = "hadoop"),
+          @ApiImplicitParam(name = "engineType", dataType = "String", example = "spark/hive"),
+          @ApiImplicitParam(name = "creator", dataType = "String", value = "ide"),
+          @ApiImplicitParam(name = "clustername", dataType = "String", example = "clustername"),
+          @ApiImplicitParam(name = "queueName", dataType = "String", example = "queueName"),
+          @ApiImplicitParam(name = "tenant", dataType = "String", defaultValue = "tenant"),
+  })
   @ApiOperationSupport(ignoreParameters = {"jsonNode"})
   @RequestMapping(path = "/taskprediction", method = RequestMethod.GET)
   public Message taskprediction(
@@ -531,9 +543,7 @@ public class EMRestfulApi {
       @RequestParam(value = "queueName", required = false) String queueName,
       @RequestParam(value = "tenant", required = false) String tenant)
       throws PersistenceErrorException, RMErrorException {
-    //    String tokenName = ModuleUserUtils.getOperationUser(req, "taskprediction");
-    String tokenName = "";
-    Boolean checkResult = false;
+    String tokenName = ModuleUserUtils.getOperationUser(req, "taskprediction");
     if (StringUtils.isBlank(username)) {
       username = tokenName;
     }
@@ -566,6 +576,7 @@ public class EMRestfulApi {
     ArrayList<UserResourceVo> userResources = RMUtils.getUserResources(userLabels, resources);
 
     Map<String, Object> yarnResource = new HashMap<>();
+    boolean checkYarnResult = false;
     if (engineType.toLowerCase().contains("spark")) {
       if (StringUtils.isBlank(queueName)) {
         // 如果没有传 队列名称，从用户配置获取
@@ -584,17 +595,19 @@ public class EMRestfulApi {
           externalResourceService.getResource(ResourceType.Yarn, labelContainer, yarnIdentifier);
       YarnResource maxResource = (YarnResource) providedYarnResource.getMaxResource();
       YarnResource usedResource = (YarnResource) providedYarnResource.getUsedResource();
-      yarnResource.put("maxResource", maxResource);
-      yarnResource.put("usedResource", usedResource);
-      // 对比yarn资源
+      yarnResource.put("maxResource", maxResource.toJson());
+      yarnResource.put("usedResource", usedResource.toJson());
+      // 获取用户配置值于对比yarn资源进行对比
+      long confMemory = Long.parseLong(EMUtils.getConfValue(configlist, "spark.executor.memory"));
+      int confInstances =
+          Integer.parseInt(EMUtils.getConfValue(configlist, "spark.executor.instances"));
+      int confCores = Integer.parseInt(EMUtils.getConfValue(configlist, "spark.executor.cores"));
       long maxMemory = ByteTimeUtils.negativeByteStringAsGb(maxResource.queueMemory() + "b");
       long usedMemory = ByteTimeUtils.negativeByteStringAsGb(usedResource.queueMemory() + "b");
-
-      boolean s3 = maxMemory - usedMemory > 0;
-
-      boolean s1 = maxResource.queueCores() - usedResource.queueCores() > 0;
-
-      checkResult = s1 && s3;
+      boolean yarnMemoryResult = maxMemory - usedMemory > confMemory * confInstances;
+      boolean yarnCoresResult =
+          maxResource.queueCores() - usedResource.queueCores() > confCores * confInstances;
+      checkYarnResult = yarnCoresResult && yarnMemoryResult;
     }
     // 获取ecm列表数据
     List<EMNodeVo> emNodeVos = AMUtils.copyToEMVo(emInfoService.getAllEM());
@@ -616,24 +629,36 @@ public class EMRestfulApi {
             .filter(emNodeVo -> emNodeVo.getNodeHealthy().equals(NodeHealthy.Healthy))
             .collect(Collectors.toList());
     // 数据对比（ecm内存资源的比对)，内存剩余资源 > 引擎启动配置，剩余核心>0，剩余实例>0
-    checkResult =
-        ecmResource.stream()
-            .anyMatch(
-                emNodeVo -> {
-                  Map leftResource = emNodeVo.getLeftResource();
-                  long memory =
-                      ByteTimeUtils.negativeByteStringAsGb(
-                          leftResource.get("memory").toString() + "b");
-                  int cores = (int) leftResource.get("cores");
-                  int instance = (int) leftResource.get("instance");
-                  return memory > 0 && cores > 0 && instance > 0;
-                });
+    long ecmMemory = 0L;
+    long ecmCores = 0L;
+    if (engineType.toLowerCase().equals("spark")) {
+      ecmMemory = Long.parseLong(EMUtils.getConfValue(configlist, "spark.executor.memory"));
+      ecmCores = Integer.parseInt(EMUtils.getConfValue(configlist, "spark.driver.cores"));
+    } else {
+      ecmMemory =
+          Long.parseLong(
+              EMUtils.getConfValue(configlist, "wds.linkis.engineconn.java.driver.memory"));
+
+      ecmCores =
+          Integer.parseInt(
+              EMUtils.getConfValue(configlist, "wds.linkis.engineconn.java.driver.cores"));
+    }
+    boolean ecmResult = false;
+    boolean ecmResults = false;
+    for (EMNodeVo emNodeVo : ecmResource) {
+      Map leftResource = emNodeVo.getLeftResource();
+      long memory =
+          ByteTimeUtils.negativeByteStringAsGb(leftResource.get("memory").toString() + "b");
+      int cores = (int) leftResource.get("cores");
+      ecmResult = memory > ecmMemory;
+      ecmResults = cores > ecmCores;
+    }
     return Message.ok()
         .data("tenant", tenant)
         .data("userConf", configlist)
         .data("userResource", userResources)
         .data("ecmResource", ecmResource)
         .data("yarnResource", yarnResource)
-        .data("checkResult", checkResult);
+        .data("checkResult", checkYarnResult && ecmResult && ecmResults);
   }
 }

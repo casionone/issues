@@ -32,6 +32,8 @@ import java.io.IOException;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -84,5 +86,29 @@ public class EMUtils {
       logger.error("获取用户配置信息失败(Failed to obtain user configuration information)");
     }
     return configlist;
+  }
+
+  public static String getConfValue(List<ConfigVo> configVoList, String confKey) {
+    String confValue = "";
+    for (ConfigVo configVo : configVoList) {
+      if (configVo.getKey().equals(confKey)) {
+        confValue = configVo.getConfigValue();
+        if (StringUtils.isBlank(confValue)) {
+          confValue = configVo.getDefaultValue();
+        }
+      }
+    }
+    return removeUnit(confValue);
+  }
+
+  public static String removeUnit(String input) {
+    // 使用正则表达式匹配数字和单位，然后仅保留数字部分
+    Pattern pattern = Pattern.compile("(\\d+)([gG])");
+    Matcher matcher = pattern.matcher(input);
+    if (matcher.find()) {
+      return matcher.group(1);
+    } else {
+      return input;
+    }
   }
 }
